@@ -258,9 +258,10 @@ class Trainer(d2l.HyperParameters):
     """The base class for training models with data.
 
     Defined in :numref:`subsec_oo-design-models`"""
-    def __init__(self, max_epochs, num_gpus=0, gradient_clip_val=0):
+    def __init__(self, max_epochs, num_gpus=0, gradient_clip_val=0,before_train={}):
         self.save_hyperparameters()
         assert num_gpus == 0, 'No GPU support yet'
+        self.before_train = before_train
 
     def prepare_data(self, data):
         self.train_dataloader = data.train_dataloader()
@@ -290,10 +291,23 @@ class Trainer(d2l.HyperParameters):
     def prepare_batch(self, batch):
         """Defined in :numref:`sec_linear_scratch`"""
         return batch
+    
+    def disable_bn(self,m):
+        if isinstance(m,nn.BatchNorm2d) or isinstance(m,nn.BatchNorm1d):
+            m.eval()
+
+    def do_before_train(self):
+        if "stop_bn" in self.before_train.keys():
+            last_epochs = self.before_train["stop_bn"]["last_epochs"]
+            if self.max_epochs - self.epoch <= last_epochs:
+                self.model.net.apply(self.disable_bn)
 
     def fit_epoch(self):
         """Defined in :numref:`sec_linear_scratch`"""
         self.model.train()
+        # batch norm をevalに変更する。epochを見て。
+        if len(self.before_train.keys()) > 0:
+            self.do_before_train()
         for batch in self.train_dataloader:
             loss = self.model.training_step(self.prepare_batch(batch))
             self.optim.zero_grad()
@@ -311,11 +325,11 @@ class Trainer(d2l.HyperParameters):
                 self.model.validation_step(self.prepare_batch(batch))
             self.val_batch_idx += 1
 
-    def __init__(self, max_epochs, num_gpus=0, gradient_clip_val=0):
+    def __init__(self, max_epochs, num_gpus=0, gradient_clip_val=0,before_train={}):
         """Defined in :numref:`sec_use_gpu`"""
         self.save_hyperparameters()
         self.gpus = [d2l.gpu(i) for i in range(min(num_gpus, d2l.num_gpus()))]
-    
+        self.before_train = before_train
 
     def prepare_batch(self, batch):
         """Defined in :numref:`sec_use_gpu`"""
